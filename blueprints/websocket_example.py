@@ -165,20 +165,22 @@ def api_websocket_market_data():
 @websocket_bp.route("/api/websocket/apikey", methods=["GET"])
 def api_get_websocket_apikey():
     """Get API key for WebSocket authentication"""
+    from database.auth_db import (
+        get_api_key_for_tradingview,
+        get_first_available_api_key,
+        upsert_api_key,
+    )
+
     username = get_username_from_session()
-    if not username:
-        return jsonify(
-            {"status": "error", "message": "Session not found - please refresh page"}
-        ), 401
-
-    from database.auth_db import get_api_key_for_tradingview
-
-    api_key = get_api_key_for_tradingview(username)
+    api_key = (
+        get_api_key_for_tradingview(username) if username else None
+    ) or get_first_available_api_key()
 
     if not api_key:
-        return jsonify(
-            {"status": "error", "message": "No API key found. Please generate an API key first."}
-        ), 404
+        from blueprints.apikey import generate_api_key
+        new_key = generate_api_key()
+        upsert_api_key(username or "admin", new_key)
+        api_key = new_key
 
     return jsonify({"status": "success", "api_key": api_key}), 200
 
@@ -186,20 +188,19 @@ def api_get_websocket_apikey():
 @websocket_bp.route("/api/websocket/config", methods=["GET"])
 def api_get_websocket_config():
     """Get WebSocket configuration including URL"""
-    username = get_username_from_session()
-    if not username:
-        return jsonify(
-            {"status": "error", "message": "Session not found - please refresh page"}
-        ), 401
-
     import os
-
     from flask import request
 
     websocket_url = os.getenv("WEBSOCKET_URL", "ws://localhost:8765")
 
-    # If the current request is HTTPS and the WebSocket URL is WS, upgrade to WSS
-    if request.is_secure and websocket_url.startswith("ws://"):
+    req_host = request.host.split(":")[0]
+    if req_host not in ("127.0.0.1", "localhost") and (
+        "127.0.0.1" in websocket_url or "localhost" in websocket_url
+    ):
+        ws_port = os.getenv("WEBSOCKET_PORT", "8765")
+        scheme = "wss" if request.is_secure else "ws"
+        websocket_url = f"{scheme}://{req_host}:{ws_port}"
+    elif request.is_secure and websocket_url.startswith("ws://"):
         websocket_url = websocket_url.replace("ws://", "wss://")
         logger.info(f"Upgraded WebSocket URL to secure: {websocket_url}")
 
