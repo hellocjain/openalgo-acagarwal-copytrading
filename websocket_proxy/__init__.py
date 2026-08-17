@@ -27,7 +27,6 @@ from .server import main as websocket_main
 # Set up logger
 logger = logging.getLogger(__name__)
 
-# Import the angel_adapter directly from the broker directory
 from broker.angel.streaming.angel_adapter import AngelWebSocketAdapter
 
 # Import the compositedge_adapter
